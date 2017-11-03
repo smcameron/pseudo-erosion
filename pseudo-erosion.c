@@ -29,13 +29,15 @@
 #include "open-simplex-noise.h"
 #include "png_utils.h"
 
-#define DIM 1024
+#define DEFAULT_IMAGE_SIZE 1024
 #define FEATURE_SIZE 64
 #define GRIDDIM 30
 
 static char *output_file = "output.png";
+static int image_size = DEFAULT_IMAGE_SIZE;
 
 static struct option long_options[] = {
+	{ "size", required_argument, NULL, 's' },
 	{ "outputfile", required_argument, NULL, 'o' },
 	{ 0, 0, 0, 0 },
 };
@@ -43,7 +45,7 @@ static struct option long_options[] = {
 static void usage(void)
 {
 	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
-	fprintf(stderr, "	pseudo_erosion [-o outputfile]\n");
+	fprintf(stderr, "	pseudo_erosion [-o outputfile] [-s imagesize]\n");
 	fprintf(stderr, "\n");
 	exit(1);
 }
@@ -194,18 +196,33 @@ static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, struct grid
 	}
 }
 
+static void process_int_option(char *option_name, char *option_value, int *value)
+{
+	int tmp;
+
+	if (sscanf(option_value, "%d", &tmp) == 1) {
+		*value = tmp;
+	} else {
+		fprintf(stderr, "Bad %s option '%s'\n", option_name, option_value);
+		usage();
+	}
+}
+
 static void process_options(int argc, char *argv[])
 {
 	int c;
 
 	while (1) {
 		int option_index;
-		c = getopt_long(argc, argv, "o:", long_options, &option_index);
+		c = getopt_long(argc, argv, "o:s:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
 		case 'o':
 			output_file = optarg;
+			break;
+		case 's':
+			process_int_option("size", optarg, &image_size);
 			break;
 		default:
 			fprintf(stderr, "pseudo_erosion: Unknown option '%s'\n",
@@ -228,12 +245,13 @@ int main(int argc, char *argv[])
 	process_options(argc, argv);
 
 	open_simplex_noise(seed, &ctx);
-	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n", DIM, DIM, output_file);
+	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n",
+		image_size, image_size, output_file);
 	g = allocate_grid(GRIDDIM);
-	image = (unsigned char *) allocate_image(DIM);
-	setup_grid_points(ctx, g, DIM, FEATURE_SIZE);
-	pseudo_erosion((uint32_t *) image, ctx, g, DIM, FEATURE_SIZE);
-	png_utils_write_png_image(output_file, (unsigned char *) image, DIM, DIM, 1, 0);
+	image = (unsigned char *) allocate_image(image_size);
+	setup_grid_points(ctx, g, image_size, FEATURE_SIZE);
+	pseudo_erosion((uint32_t *) image, ctx, g, image_size, FEATURE_SIZE);
+	png_utils_write_png_image(output_file, (unsigned char *) image, image_size, image_size, 1, 0);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
 	return 0;
