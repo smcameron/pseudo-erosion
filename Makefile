@@ -3,7 +3,8 @@ CC=gcc
 
 all:	pseudo-erosion
 
-CFLAGS=-g
+#CFLAGS=-g
+CFLAGS=-O3 -Wall --pedantic
 
 open-simplex-noise.o:	open-simplex-noise.c open-simplex-noise.h
 	${CC} ${CFLAGS} -c open-simplex-noise.c
