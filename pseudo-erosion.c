@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <getopt.h>
 
 #include "open-simplex-noise.h"
 #include "png_utils.h"
@@ -31,6 +32,21 @@
 #define DIM 1024
 #define FEATURE_SIZE 64
 #define GRIDDIM 30
+
+static char *output_file = "output.png";
+
+static struct option long_options[] = {
+	{ "outputfile", required_argument, NULL, 'o' },
+	{ 0, 0, 0, 0 },
+};
+
+static void usage(void)
+{
+	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
+	fprintf(stderr, "	pseudo_erosion [-o outputfile]\n");
+	fprintf(stderr, "\n");
+	exit(1);
+}
 
 struct grid_point {
 	double x, y;
@@ -178,21 +194,46 @@ static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, struct grid
 	}
 }
 
+static void process_options(int argc, char *argv[])
+{
+	int c;
+
+	while (1) {
+		int option_index;
+		c = getopt_long(argc, argv, "o:", long_options, &option_index);
+		if (c == -1)
+			break;
+		switch (c) {
+		case 'o':
+			output_file = optarg;
+			break;
+		default:
+			fprintf(stderr, "pseudo_erosion: Unknown option '%s'\n",
+				option_index > 0 && option_index < argc &&
+				argv[option_index] ? argv[option_index] : "(none)");
+			usage();
+			break;
+		}
+	}
+	return;
+}
+
 int main(int argc, char *argv[])
 {
-	char *filename = "output.png";
 	int seed = 123456;
 	unsigned char *image = NULL;
 	struct osn_context *ctx;
 	struct grid *g;
 
+	process_options(argc, argv);
+
 	open_simplex_noise(seed, &ctx);
-	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n", DIM, DIM, filename);
+	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n", DIM, DIM, output_file);
 	g = allocate_grid(GRIDDIM);
 	image = (unsigned char *) allocate_image(DIM);
 	setup_grid_points(ctx, g, DIM, FEATURE_SIZE);
 	pseudo_erosion((uint32_t *) image, ctx, g, DIM, FEATURE_SIZE);
-	png_utils_write_png_image(filename, (unsigned char *) image, DIM, DIM, 1, 0);
+	png_utils_write_png_image(output_file, (unsigned char *) image, DIM, DIM, 1, 0);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
 	return 0;
