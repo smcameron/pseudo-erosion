@@ -31,12 +31,14 @@
 
 #define DEFAULT_IMAGE_SIZE 1024
 #define FEATURE_SIZE 64
-#define GRIDDIM 30
+#define DEFAULT_GRID_SIZE 30
 
 static char *output_file = "output.png";
 static int image_size = DEFAULT_IMAGE_SIZE;
+static int grid_size = DEFAULT_GRID_SIZE;
 
 static struct option long_options[] = {
+	{ "gridsize", required_argument, NULL, 'g' },
 	{ "size", required_argument, NULL, 's' },
 	{ "outputfile", required_argument, NULL, 'o' },
 	{ 0, 0, 0, 0 },
@@ -45,7 +47,7 @@ static struct option long_options[] = {
 static void usage(void)
 {
 	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
-	fprintf(stderr, "	pseudo_erosion [-o outputfile] [-s imagesize]\n");
+	fprintf(stderr, "	pseudo_erosion [-g gridsize] [-o outputfile] [-s imagesize]\n");
 	fprintf(stderr, "\n");
 	exit(1);
 }
@@ -214,10 +216,13 @@ static void process_options(int argc, char *argv[])
 
 	while (1) {
 		int option_index;
-		c = getopt_long(argc, argv, "o:s:", long_options, &option_index);
+		c = getopt_long(argc, argv, "g:o:s:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
+		case 'g':
+			process_int_option("size", optarg, &grid_size);
+			break;
 		case 'o':
 			output_file = optarg;
 			break;
@@ -247,7 +252,7 @@ int main(int argc, char *argv[])
 	open_simplex_noise(seed, &ctx);
 	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n",
 		image_size, image_size, output_file);
-	g = allocate_grid(GRIDDIM);
+	g = allocate_grid(grid_size);
 	image = (unsigned char *) allocate_image(image_size);
 	setup_grid_points(ctx, g, image_size, FEATURE_SIZE);
 	pseudo_erosion((uint32_t *) image, ctx, g, image_size, FEATURE_SIZE);
