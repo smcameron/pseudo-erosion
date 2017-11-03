@@ -83,7 +83,7 @@ static void setup_grid_points(struct osn_context *ctx, const double dim, const d
 				double px, py;
 				nx = x + xo[i];
 				ny = y + yo[i];
-				if (x < 0 || x > GRIDDIM || y < 0 || y > GRIDDIM)
+				if (nx < 0 || nx > GRIDDIM || ny < 0 || ny > GRIDDIM)
 					continue;
 				px = grid[nx][ny].x;
 				py = grid[nx][ny].y;
