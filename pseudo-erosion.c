@@ -30,14 +30,16 @@
 #include "png_utils.h"
 
 #define DEFAULT_IMAGE_SIZE 1024
-#define FEATURE_SIZE 64
+#define DEFAULT_FEATURE_SIZE 64
 #define DEFAULT_GRID_SIZE 30
 
 static char *output_file = "output.png";
 static int image_size = DEFAULT_IMAGE_SIZE;
+static int feature_size = DEFAULT_FEATURE_SIZE;
 static int grid_size = DEFAULT_GRID_SIZE;
 
 static struct option long_options[] = {
+	{ "featuresize", required_argument, NULL, 'f' },
 	{ "gridsize", required_argument, NULL, 'g' },
 	{ "size", required_argument, NULL, 's' },
 	{ "outputfile", required_argument, NULL, 'o' },
@@ -47,7 +49,8 @@ static struct option long_options[] = {
 static void usage(void)
 {
 	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
-	fprintf(stderr, "	pseudo_erosion [-g gridsize] [-o outputfile] [-s imagesize]\n");
+	fprintf(stderr, "	pseudo_erosion [-g gridsize] [-o outputfile] [-s imagesize] \\\n");
+	fprintf(stderr, "		[-f featuresize]\n");
 	fprintf(stderr, "\n");
 	exit(1);
 }
@@ -216,10 +219,13 @@ static void process_options(int argc, char *argv[])
 
 	while (1) {
 		int option_index;
-		c = getopt_long(argc, argv, "g:o:s:", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:g:o:s:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
+		case 'f':
+			process_int_option("size", optarg, &feature_size);
+			break;
 		case 'g':
 			process_int_option("size", optarg, &grid_size);
 			break;
@@ -254,8 +260,8 @@ int main(int argc, char *argv[])
 		image_size, image_size, output_file);
 	g = allocate_grid(grid_size);
 	image = (unsigned char *) allocate_image(image_size);
-	setup_grid_points(ctx, g, image_size, FEATURE_SIZE);
-	pseudo_erosion((uint32_t *) image, ctx, g, image_size, FEATURE_SIZE);
+	setup_grid_points(ctx, g, image_size, feature_size);
+	pseudo_erosion((uint32_t *) image, ctx, g, image_size, feature_size);
 	png_utils_write_png_image(output_file, (unsigned char *) image, image_size, image_size, 1, 0);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
