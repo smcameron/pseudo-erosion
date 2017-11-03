@@ -129,13 +129,15 @@ static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, int dim, fl
 				x2 = grid[cx][cy].x;
 				y2 = grid[cx][cy].y;
 				f1 = ((y1 - y2) * (py - y1) + (x1 - x2) * (px - x1)) / (sqr(y1 - y2) + sqr(x1 - x2));
-				f2 = fabs(((y1 - y2) * (px - x1) - (x1 - x2) * (py - y1)) / sqrt(sqr(x1 - x2) + sqr(y1 - y2)));
-				if (f1 > 0.0)
+				if (f1 > 0.0) {
 					h = sqrt(sqr(px - x1) + sqr(py - y1));
-				else if (f1 < -1.0)
+				} else if (f1 < -1.0) {
 					h = sqrt(sqr(px - x2) + sqr(py - y2));
-				else
+				} else {
+					f2 = fabs(((y1 - y2) * (px - x1) - (x1 - x2) * (py - y1)) /
+							sqrt(sqr(x1 - x2) + sqr(y1 - y2)));
 					h = f2;
+				}
 				if (h < minh)
 					minh = h;
 			}
