@@ -37,11 +37,13 @@ static char *output_file = "output.png";
 static int image_size = DEFAULT_IMAGE_SIZE;
 static int feature_size = DEFAULT_FEATURE_SIZE;
 static int grid_size = DEFAULT_GRID_SIZE;
+static int seed = 123456;
 
 static struct option long_options[] = {
 	{ "featuresize", required_argument, NULL, 'f' },
 	{ "gridsize", required_argument, NULL, 'g' },
 	{ "size", required_argument, NULL, 's' },
+	{ "seed", required_argument, NULL, 'S' },
 	{ "outputfile", required_argument, NULL, 'o' },
 	{ 0, 0, 0, 0 },
 };
@@ -219,7 +221,7 @@ static void process_options(int argc, char *argv[])
 
 	while (1) {
 		int option_index;
-		c = getopt_long(argc, argv, "f:g:o:s:", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:g:o:s:S:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -235,6 +237,9 @@ static void process_options(int argc, char *argv[])
 		case 's':
 			process_int_option("size", optarg, &image_size);
 			break;
+		case 'S':
+			process_int_option("seed", optarg, &seed);
+			break;
 		default:
 			fprintf(stderr, "pseudo_erosion: Unknown option '%s'\n",
 				option_index > 0 && option_index < argc &&
@@ -248,7 +253,6 @@ static void process_options(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-	int seed = 123456;
 	unsigned char *image = NULL;
 	struct osn_context *ctx;
 	struct grid *g;
