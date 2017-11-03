@@ -20,8 +20,54 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+#include "open-simplex-noise.h"
+#include "png_utils.h"
+
+#define DIM 1024
+#define FEATURE_SIZE 64
+
+static uint32_t *allocate_image(int dim)
+{
+	unsigned char *image;
+
+	image = malloc(4 * dim * dim);
+	memset(image, 0, 4 * dim * dim);
+	return (uint32_t *) image;
+}
+
+static unsigned char *generate_initial_noise_image(struct osn_context *ctx, int dim, double feature_size)
+{
+	uint32_t *image = allocate_image(dim);
+	int x, y;
+	double value;
+	uint32_t rgb;
+
+	for (y = 0; y < dim; y++) {
+		for (x = 0; x < dim; x++) {
+			value = open_simplex_noise4(ctx,
+				(double) x / feature_size, (double) y / feature_size, 0.0, 0.0);
+			rgb = 0x010101 * (uint32_t) ((value + 1) * 127.5);
+			image[y * dim + x] = (0x0ff << 24) | (rgb);
+		}
+	}
+	return (unsigned char *) image;
+}
 
 int main(int argc, char *argv[])
 {
+	char *filename = "output.png";
+	int seed = 123456;
+	unsigned char *image = NULL;
+	struct osn_context *ctx;
+	open_simplex_noise(seed, &ctx);
+
+	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n", DIM, DIM, filename);
+	image = generate_initial_noise_image(ctx, DIM, FEATURE_SIZE);
+	png_utils_write_png_image(filename, (unsigned char *) image, DIM, DIM, 1, 0);
+	open_simplex_noise_free(ctx);
 	return 0;
 }
