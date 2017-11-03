@@ -107,6 +107,12 @@ static inline uint32_t noise_to_color(double noise)
 	return rgb;
 }
 
+static inline double color_to_noise(uint32_t color)
+{
+	int value = color & 0xff;	
+	return ((double) value / 127.5) - 1.0;
+}
+
 /* Offsets for Moore neighborhood, including self */
 static const int xo[] = { -1, 0, 1, 1, 1, 0, -1, -1, 0 };
 static const int yo[] = { -1, -1, -1, 0, 1, 1, 1, 0, 0 };
@@ -143,6 +149,51 @@ static void setup_grid_points(struct osn_context *ctx, struct grid *grid, const 
 				px = gridpoint(grid, nx, ny)->x;
 				py = gridpoint(grid, nx, ny)->y;
 				value = open_simplex_noise4(ctx, px, py, 0.0, 0.0);
+				if (value < lowest_value) {
+					lown = i;
+					lowest_value = value;
+				}
+			}
+			/* Set the connection to lowest neighbor */
+			gridpoint(grid, x, y)->cx = x + xo[lown];
+			gridpoint(grid, x, y)->cy = y + yo[lown];
+		}
+	}
+}
+
+static void setup_grid_points_from_image(struct osn_context *ctx, struct grid *grid,
+		const double dim, const double feature_size, uint32_t *image)
+{
+	int i, x, y;
+	double xoffset, yoffset;
+
+	for (y = 0; y < grid->dim + 1; y++) {
+		for (x = 0; x < grid->dim + 1; x++) {
+			xoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
+			yoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
+			gridpoint(grid, x, y)->x = ((double) x * dim / (double) grid->dim / feature_size) + xoffset;
+			gridpoint(grid, x, y)->y = ((double) y * dim / (double) grid->dim / feature_size) + yoffset;
+		}
+	}
+	/* Set up connections. Each grid point is "connected to" it's lowest neighbor,
+	 * (possibly itself)
+	 */
+	for (y = 0; y < grid->dim + 1; y++) {
+		for (x = 0; x < grid->dim + 1; x++) {
+			int lown = -1;
+			double lowest_value = 100000.0;
+			/* Find the lowest neighbor, lown (index into xo[], yo[]) */
+			for (i = 0; i < 9; i++) { /* Check Moore neighborhood */
+				int nx, ny;
+				double value;
+				double px, py;
+				nx = x + xo[i];
+				ny = y + yo[i];
+				if (nx < 0 || nx > grid->dim || ny < 0 || ny > grid->dim)
+					continue;
+				px = gridpoint(grid, nx, ny)->x;
+				py = gridpoint(grid, nx, ny)->y;
+				value = color_to_noise(image[(int) (py * dim + px)]);
 				if (value < lowest_value) {
 					lown = i;
 					lowest_value = value;
@@ -251,11 +302,28 @@ static void process_options(int argc, char *argv[])
 	return;
 }
 
+static void combine_images(uint32_t *im1, uint32_t *im2, int imsize)
+{
+	int x, y;
+
+	for (y = 0; y < imsize; y++) {
+		for (x = 0; x < imsize; x++) {
+			double n1, n2;
+			uint32_t c1 = im1[y * imsize + x];
+			uint32_t c2 = im2[y * imsize + x];
+			n1 = color_to_noise(c1);
+			n2 = color_to_noise(c2);
+			n1 = 0.5 * n1 + n2;
+			im1[y * imsize + x] = noise_to_color(n1);
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	unsigned char *image = NULL;
+	unsigned char *image, *image2 = NULL;
 	struct osn_context *ctx;
-	struct grid *g;
+	struct grid *g, *g2;
 
 	process_options(argc, argv);
 
@@ -263,9 +331,14 @@ int main(int argc, char *argv[])
 	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n",
 		image_size, image_size, output_file);
 	g = allocate_grid(grid_size);
+	g2 = allocate_grid(grid_size * 2);
 	image = (unsigned char *) allocate_image(image_size);
+	image2 = (unsigned char *) allocate_image(image_size);
 	setup_grid_points(ctx, g, image_size, feature_size);
 	pseudo_erosion((uint32_t *) image, ctx, g, image_size, feature_size);
+	setup_grid_points_from_image(ctx, g2, image_size, feature_size, (uint32_t *) image);
+	pseudo_erosion((uint32_t *) image2, ctx, g2, image_size, feature_size);
+	combine_images((uint32_t *) image, (uint32_t *) image2, image_size);
 	png_utils_write_png_image(output_file, (unsigned char *) image, image_size, image_size, 1, 0);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
