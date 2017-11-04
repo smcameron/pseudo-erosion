@@ -29,4 +29,37 @@ the height from that point is
 The final height of the pixel is the minimum
 height given from all points. Iterate and combine as you please.
 </blockquote>
+<em>A little further elaboration about the iteration step...</em>
+<blockquote>
+<p>So, basically, you're going to add what you have there to your original
+heightmap. Then You're going to take the resulting heightmap and and run the
+same function again, but with more points. And then combine again. Then run it
+with more points. Then combine for a final map.
+
+<p>The version I found that works best works like this:
+
+```
+p1=perlin noise(4 vectors x 4 vectors)
+
+p2=perlin noise(8 vectors x 8 vectors)
+
+map=p1+p2/2
+
+r1=pseudo-erosion(8 points x 8 points, referencing map)
+
+map=map+sqr(r1)
+
+r2=pseudo-erosion(32 points x 32 points, referencing map)
+
+map=map+r1*r2/2
+
+r3=pseudo-erosion(128 points x 128 points, referencing map)
+
+map=map+sqrt(r1r2)r3/3
+```
+</blockquote>
+So far, I have not been able to implement and get results like YankeeMinstrel
+gets though. I suspect it is due to clipping/overflow as the values are transformed
+into bytes in the image, then transformed back out, but there may be other
+problems as well that I'm not yet aware of.
 

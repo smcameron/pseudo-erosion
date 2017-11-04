@@ -38,6 +38,7 @@ static int image_size = DEFAULT_IMAGE_SIZE;
 static int feature_size = DEFAULT_FEATURE_SIZE;
 static int grid_size = DEFAULT_GRID_SIZE;
 static int seed = 123456;
+static char *input_image = NULL;
 
 static struct option long_options[] = {
 	{ "featuresize", required_argument, NULL, 'f' },
@@ -45,6 +46,7 @@ static struct option long_options[] = {
 	{ "size", required_argument, NULL, 's' },
 	{ "seed", required_argument, NULL, 'S' },
 	{ "outputfile", required_argument, NULL, 'o' },
+	{ "input", required_argument, NULL, 'i' },
 	{ 0, 0, 0, 0 },
 };
 
@@ -52,7 +54,7 @@ static void usage(void)
 {
 	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
 	fprintf(stderr, "	pseudo_erosion [-g gridsize] [-o outputfile] [-s imagesize] \\\n");
-	fprintf(stderr, "		[-f featuresize]\n");
+	fprintf(stderr, "		[-i inputfile] [-f featuresize]\n");
 	fprintf(stderr, "\n");
 	exit(1);
 }
@@ -109,7 +111,7 @@ static inline uint32_t noise_to_color(double noise)
 
 static inline double color_to_noise(uint32_t color)
 {
-	int value = color & 0xff;	
+	int value = color & 0x0ff;
 	return ((double) value / 127.5) - 1.0;
 }
 
@@ -252,6 +254,8 @@ static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, struct grid
 		printf(".");
 		fflush(stdout);
 	}
+	printf("\n");
+	fflush(stdout);
 }
 
 static void process_int_option(char *option_name, char *option_value, int *value)
@@ -272,7 +276,7 @@ static void process_options(int argc, char *argv[])
 
 	while (1) {
 		int option_index;
-		c = getopt_long(argc, argv, "f:g:o:s:S:", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:g:i:o:s:S:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -281,6 +285,9 @@ static void process_options(int argc, char *argv[])
 			break;
 		case 'g':
 			process_int_option("size", optarg, &grid_size);
+			break;
+		case 'i':
+			input_image = optarg;
 			break;
 		case 'o':
 			output_file = optarg;
@@ -302,7 +309,8 @@ static void process_options(int argc, char *argv[])
 	return;
 }
 
-static void combine_images(uint32_t *im1, uint32_t *im2, int imsize)
+/* Combine images a,b as a + 0.5*b */
+static void combine_images_f1(uint32_t *im1, uint32_t *im2, int imsize)
 {
 	int x, y;
 
@@ -313,7 +321,67 @@ static void combine_images(uint32_t *im1, uint32_t *im2, int imsize)
 			uint32_t c2 = im2[y * imsize + x];
 			n1 = color_to_noise(c1);
 			n2 = color_to_noise(c2);
-			n1 = 0.5 * n1 + n2;
+			n1 = 0.25 * n2 + 0.5 * n1;
+			im1[y * imsize + x] = noise_to_color(n1);
+		}
+	}
+}
+
+/* Combine images a,b as a + sqr(b) */
+static void combine_images_f2(uint32_t *im1, uint32_t *im2, int imsize)
+{
+	int x, y;
+
+	for (y = 0; y < imsize; y++) {
+		for (x = 0; x < imsize; x++) {
+			double n1, n2;
+			uint32_t c1 = im1[y * imsize + x];
+			uint32_t c2 = im2[y * imsize + x];
+			n1 = color_to_noise(c1);
+			n2 = color_to_noise(c2);
+			n1 = n2 * n2 + n1;
+			im1[y * imsize + x] = noise_to_color(n1);
+		}
+	}
+}
+
+/* Combine images a,b,c as a + b * 0.5 * c */
+static void combine_images_f3(uint32_t *im1, uint32_t *im2, uint32_t *im3, int imsize)
+{
+	int x, y;
+
+	for (y = 0; y < imsize; y++) {
+		for (x = 0; x < imsize; x++) {
+			double n1, n2, n3;
+			uint32_t c1 = im1[y * imsize + x];
+			uint32_t c2 = im2[y * imsize + x];
+			uint32_t c3 = im3[y * imsize + x];
+			n1 = color_to_noise(c1);
+			n2 = color_to_noise(c2);
+			n3 = color_to_noise(c3);
+			n1 = n1 + n2 * 0.5 * n3;
+			im1[y * imsize + x] = noise_to_color(n1);
+		}
+	}
+}
+
+/* Combine images a,b,c,d as a + sqrt(b * c) * 0.3333 * d */
+static void combine_images_f4(uint32_t *im1, uint32_t *im2, uint32_t *im3, uint32_t *im4, int imsize)
+{
+	int x, y;
+
+	for (y = 0; y < imsize; y++) {
+		for (x = 0; x < imsize; x++) {
+			double n1, n2, n3, n4;
+			uint32_t c1 = im1[y * imsize + x];
+			uint32_t c2 = im2[y * imsize + x];
+			uint32_t c3 = im3[y * imsize + x];
+			uint32_t c4 = im4[y * imsize + x];
+			n1 = color_to_noise(c1);
+			n2 = color_to_noise(c2);
+			n3 = color_to_noise(c3);
+			n4 = color_to_noise(c4);
+			n1 = n1 + sqrt(n2 * n3) * 0.3333 * n4;
 			im1[y * imsize + x] = noise_to_color(n1);
 		}
 	}
@@ -321,9 +389,9 @@ static void combine_images(uint32_t *im1, uint32_t *im2, int imsize)
 
 int main(int argc, char *argv[])
 {
-	unsigned char *image, *image2 = NULL;
+	unsigned char *img, *img2, *img3, *img4, *img5 = NULL;
 	struct osn_context *ctx;
-	struct grid *g, *g2;
+	struct grid *g, *g2, *g3, *g4, *g5;
 
 	process_options(argc, argv);
 
@@ -331,15 +399,50 @@ int main(int argc, char *argv[])
 	printf("pseudo-erosion: Generating %d x %d heightmap image '%s'\n",
 		image_size, image_size, output_file);
 	g = allocate_grid(grid_size);
+	/* First iteration, or input image */
+	if (input_image) {
+		int w, h, a;
+		char whynot[100];
+		img = (unsigned char *) png_utils_read_png_image(input_image, 0, 0, 0, &w, &h, &a, whynot, 100);
+		if (w < h)
+			image_size = w;
+		else
+			image_size = h;
+	} else {
+		img = (unsigned char *) allocate_image(image_size);
+		setup_grid_points(ctx, g, image_size, feature_size);
+		pseudo_erosion((uint32_t *) img, ctx, g, image_size, feature_size);
+	}
+
+	/* 2nd iteration */
+	img2 = (unsigned char *) allocate_image(image_size);
 	g2 = allocate_grid(grid_size * 2);
-	image = (unsigned char *) allocate_image(image_size);
-	image2 = (unsigned char *) allocate_image(image_size);
-	setup_grid_points(ctx, g, image_size, feature_size);
-	pseudo_erosion((uint32_t *) image, ctx, g, image_size, feature_size);
-	setup_grid_points_from_image(ctx, g2, image_size, feature_size, (uint32_t *) image);
-	pseudo_erosion((uint32_t *) image2, ctx, g2, image_size, feature_size);
-	combine_images((uint32_t *) image, (uint32_t *) image2, image_size);
-	png_utils_write_png_image(output_file, (unsigned char *) image, image_size, image_size, 1, 0);
+	setup_grid_points(ctx, g2, image_size, feature_size);
+	pseudo_erosion((uint32_t *) img2, ctx, g2, image_size, feature_size);
+	combine_images_f1((uint32_t *) img, (uint32_t *) img2, image_size);
+
+	/* 3rd iteration */
+	img3 = (unsigned char *) allocate_image(image_size);
+	g3 = allocate_grid(grid_size * 4);
+	setup_grid_points_from_image(ctx, g3, image_size, feature_size, (uint32_t *) img2);
+	pseudo_erosion((uint32_t *) img3, ctx, g3, image_size, feature_size);
+	combine_images_f2((uint32_t *) img, (uint32_t *) img3, image_size);
+
+	/* 4th iteration */
+	img4 = (unsigned char *) allocate_image(image_size);
+	g4 = allocate_grid(grid_size * 8);
+	setup_grid_points_from_image(ctx, g4, image_size, feature_size, (uint32_t *) img3);
+	pseudo_erosion((uint32_t *) img4, ctx, g4, image_size, feature_size);
+	combine_images_f3((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, image_size);
+
+	/* 5th iteration */
+	img5 = (unsigned char *) allocate_image(image_size);
+	g5 = allocate_grid(grid_size * 16);
+	setup_grid_points_from_image(ctx, g5, image_size, feature_size, (uint32_t *) img3);
+	pseudo_erosion((uint32_t *) img5, ctx, g5, image_size, feature_size);
+	combine_images_f4((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, (uint32_t *) img5, image_size);
+
+	png_utils_write_png_image(output_file, (unsigned char *) img, image_size, image_size, 1, 0);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
 	return 0;
