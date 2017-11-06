@@ -423,29 +423,29 @@ int main(int argc, char *argv[])
 	/* 2nd iteration */
 	img2 = (unsigned char *) allocate_image(image_size);
 	g2 = allocate_grid(grid_size * 2);
-	setup_grid_points(ctx, g2, image_size, feature_size);
-	pseudo_erosion((uint32_t *) img2, ctx, g2, image_size, feature_size);
+	setup_grid_points(ctx, g2, image_size, feature_size / 2);
+	pseudo_erosion((uint32_t *) img2, ctx, g2, image_size, feature_size / 2);
 	combine_images_f1((uint32_t *) img, (uint32_t *) img2, image_size);
 
 	/* 3rd iteration */
 	img3 = (unsigned char *) allocate_image(image_size);
 	g3 = allocate_grid(grid_size * 4);
-	setup_grid_points_from_image(ctx, g3, image_size, feature_size, (uint32_t *) img2);
-	pseudo_erosion((uint32_t *) img3, ctx, g3, image_size, feature_size);
+	setup_grid_points_from_image(ctx, g3, image_size, feature_size / 4, (uint32_t *) img2);
+	pseudo_erosion((uint32_t *) img3, ctx, g3, image_size, feature_size / 4);
 	combine_images_f2((uint32_t *) img, (uint32_t *) img3, image_size);
 
 	/* 4th iteration */
 	img4 = (unsigned char *) allocate_image(image_size);
 	g4 = allocate_grid(grid_size * 8);
-	setup_grid_points_from_image(ctx, g4, image_size, feature_size, (uint32_t *) img3);
-	pseudo_erosion((uint32_t *) img4, ctx, g4, image_size, feature_size);
+	setup_grid_points_from_image(ctx, g4, image_size, feature_size / 8, (uint32_t *) img3);
+	pseudo_erosion((uint32_t *) img4, ctx, g4, image_size, feature_size / 8);
 	combine_images_f3((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, image_size);
 
 	/* 5th iteration */
 	img5 = (unsigned char *) allocate_image(image_size);
 	g5 = allocate_grid(grid_size * 16);
-	setup_grid_points_from_image(ctx, g5, image_size, feature_size, (uint32_t *) img3);
-	pseudo_erosion((uint32_t *) img5, ctx, g5, image_size, feature_size);
+	setup_grid_points_from_image(ctx, g5, image_size, feature_size / 16, (uint32_t *) img3);
+	pseudo_erosion((uint32_t *) img5, ctx, g5, image_size, feature_size / 16);
 	combine_images_f4((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, (uint32_t *) img5, image_size);
 
 	png_utils_write_png_image(output_file, (unsigned char *) img, image_size, image_size, 1, 0);
