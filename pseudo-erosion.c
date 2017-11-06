@@ -126,10 +126,13 @@ static void setup_grid_points(struct osn_context *ctx, struct grid *grid, const 
 
 	for (y = 0; y < grid->dim + 1; y++) {
 		for (x = 0; x < grid->dim + 1; x++) {
-			xoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
-			yoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
-			gridpoint(grid, x, y)->x = ((double) x * dim / (double) grid->dim / feature_size) + xoffset;
-			gridpoint(grid, x, y)->y = ((double) y * dim / (double) grid->dim / feature_size) + yoffset;
+			double ox, oy;
+			ox = ((double) x * dim / (double) grid->dim / feature_size);
+			oy = ((double) y * dim / (double) grid->dim / feature_size);
+			xoffset = 0.5 * open_simplex_noise3(ctx, ox, oy, 25.7) * dim / grid->dim / feature_size;
+			yoffset = 0.5 * open_simplex_noise3(ctx, ox, oy, 95.9) * dim / grid->dim / feature_size;
+			gridpoint(grid, x, y)->x = ox + xoffset;
+			gridpoint(grid, x, y)->y = oy + yoffset;
 		}
 	}
 	/* Set up connections. Each grid point is "connected to" it's lowest neighbor,
@@ -171,10 +174,13 @@ static void setup_grid_points_from_image(struct osn_context *ctx, struct grid *g
 
 	for (y = 0; y < grid->dim + 1; y++) {
 		for (x = 0; x < grid->dim + 1; x++) {
-			xoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
-			yoffset = 0.7 * (((double) rand() / (double) RAND_MAX)) * dim / grid->dim / feature_size;
-			gridpoint(grid, x, y)->x = ((double) x * dim / (double) grid->dim / feature_size) + xoffset;
-			gridpoint(grid, x, y)->y = ((double) y * dim / (double) grid->dim / feature_size) + yoffset;
+			double ox, oy;
+			ox = ((double) x * dim / (double) grid->dim / feature_size);
+			oy = ((double) y * dim / (double) grid->dim / feature_size);
+			xoffset = 0.5 * open_simplex_noise3(ctx, ox, oy, 25.7) * dim / grid->dim / feature_size;
+			yoffset = 0.5 * open_simplex_noise3(ctx, ox, oy, 95.9) * dim / grid->dim / feature_size;
+			gridpoint(grid, x, y)->x = ox + xoffset;
+			gridpoint(grid, x, y)->y = oy + yoffset;
 		}
 	}
 	/* Set up connections. Each grid point is "connected to" it's lowest neighbor,
