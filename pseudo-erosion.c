@@ -30,8 +30,8 @@
 #include "png_utils.h"
 
 #define DEFAULT_IMAGE_SIZE 1024
-#define DEFAULT_FEATURE_SIZE 64
-#define DEFAULT_GRID_SIZE 30
+#define DEFAULT_FEATURE_SIZE 512
+#define DEFAULT_GRID_SIZE 4
 
 static char *output_file = "output.png";
 static int image_size = DEFAULT_IMAGE_SIZE;
