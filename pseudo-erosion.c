@@ -32,12 +32,14 @@
 #define DEFAULT_IMAGE_SIZE 1024
 #define DEFAULT_FEATURE_SIZE 256
 #define DEFAULT_GRID_SIZE 8
+#define DEFAULT_WARP 0.25
 
 static char *output_file = "output.png";
 static int image_size = DEFAULT_IMAGE_SIZE;
 static int feature_size = DEFAULT_FEATURE_SIZE;
 static int grid_size = DEFAULT_GRID_SIZE;
 static int seed = 123456;
+static double warp_amount = DEFAULT_WARP;
 static char *input_image = NULL;
 
 static struct option long_options[] = {
@@ -45,6 +47,7 @@ static struct option long_options[] = {
 	{ "gridsize", required_argument, NULL, 'g' },
 	{ "size", required_argument, NULL, 's' },
 	{ "seed", required_argument, NULL, 'S' },
+	{ "warp", required_argument, NULL, 'w' },
 	{ "outputfile", required_argument, NULL, 'o' },
 	{ "input", required_argument, NULL, 'i' },
 	{ 0, 0, 0, 0 },
@@ -54,7 +57,7 @@ static void usage(void)
 {
 	fprintf(stderr, "pseudo_erosion: Usage:\n\n");
 	fprintf(stderr, "	pseudo_erosion [-g gridsize] [-o outputfile] [-s imagesize] \\\n");
-	fprintf(stderr, "		[-i inputfile] [-f featuresize] [-S seed]\n");
+	fprintf(stderr, "		[-i inputfile] [-f featuresize] [-S seed] [-w warp]\n");
 	fprintf(stderr, "\n");
 	exit(1);
 }
@@ -325,21 +328,31 @@ static void setup_grid_points_from_heightmap(struct grid *grid, int img_dim,
 	connect_lowest_neighbors(grid);
 }
 
-static void pseudo_erosion(double *hm, struct grid *grid, int dim)
+static void pseudo_erosion(double *hm, struct osn_context *ctx, struct grid *grid,
+		int dim, int layer, double warp)
 {
 	int x, y, dx, dy, gx, gy, ngx, ngy;
 	double maxh = 0.0;
+	double z_base = (double) layer * 31.7;
 	size_t i, n = (size_t) dim * (size_t) dim;
 
 	for (y = 0; y < dim; y++) {
-		double py = ((double) y + 0.5) * (double) grid->dim / (double) dim;
-		ngy = (int) floor(py + 0.5);
+		double base_py = ((double) y + 0.5) * (double) grid->dim / (double) dim;
 		for (x = 0; x < dim; x++) { /* For each pixel... */
 			double px = ((double) x + 0.5) * (double) grid->dim / (double) dim;
+			double py = base_py;
 			double minh2 = HUGE_VAL;
 			double h;
 
+			if (warp > 0.0) {
+				double wx = open_simplex_noise3(ctx, px * 0.5, py * 0.5, z_base + 11.3);
+				double wy = open_simplex_noise3(ctx, px * 0.5, py * 0.5, z_base + 57.9);
+				px += warp * wx;
+				py += warp * wy;
+			}
+
 			ngx = (int) floor(px + 0.5);
+			ngy = (int) floor(py + 0.5);
 			for (dy = -2; dy <= 2; dy++) {
 				gy = ngy + dy;
 				if (gy < -GRID_PAD || gy > grid->dim + GRID_PAD)
@@ -406,13 +419,25 @@ static void process_int_option(char *option_name, char *option_value, int *value
 	}
 }
 
+static void process_double_option(char *option_name, char *option_value, double *value)
+{
+	double tmp;
+
+	if (sscanf(option_value, "%lf", &tmp) == 1) {
+		*value = tmp;
+	} else {
+		fprintf(stderr, "Bad %s option '%s'\n", option_name, option_value);
+		usage();
+	}
+}
+
 static void process_options(int argc, char *argv[])
 {
 	int c;
 
 	while (1) {
 		int option_index = 0;
-		c = getopt_long(argc, argv, "f:g:i:o:s:S:", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:g:i:o:s:S:w:", long_options, &option_index);
 		if (c == -1)
 			break;
 		switch (c) {
@@ -434,6 +459,9 @@ static void process_options(int argc, char *argv[])
 		case 'S':
 			process_int_option("seed", optarg, &seed);
 			break;
+		case 'w':
+			process_double_option("warp", optarg, &warp_amount);
+			break;
 		default:
 			fprintf(stderr, "pseudo_erosion: Unknown option '%s'\n",
 				option_index > 0 && option_index < argc &&
@@ -442,8 +470,8 @@ static void process_options(int argc, char *argv[])
 			break;
 		}
 	}
-	if (image_size <= 0 || feature_size <= 0 || grid_size <= 0) {
-		fprintf(stderr, "pseudo_erosion: size, featuresize, and gridsize must be positive\n");
+	if (image_size <= 0 || feature_size <= 0 || grid_size <= 0 || warp_amount < 0.0) {
+		fprintf(stderr, "pseudo_erosion: size, featuresize, and gridsize must be positive and warp >= 0\n");
 		usage();
 	}
 	return;
@@ -536,7 +564,7 @@ int main(int argc, char *argv[])
 	img3 = allocate_heightmap(image_size);
 	g1 = allocate_grid(grid_size);
 	setup_grid_points_from_heightmap(g1, image_size, img, 1);
-	pseudo_erosion(img3, g1, image_size);
+	pseudo_erosion(img3, ctx, g1, image_size, 1, warp_amount);
 	combine_heightmaps_f2(img, img3, image_size);
 
 	write_heightmap_png("img3.png", img3, image_size);
@@ -546,7 +574,7 @@ int main(int argc, char *argv[])
 	img4 = allocate_heightmap(image_size);
 	g2 = allocate_grid(grid_size * 4);
 	setup_grid_points_from_heightmap(g2, image_size, img, 2);
-	pseudo_erosion(img4, g2, image_size);
+	pseudo_erosion(img4, ctx, g2, image_size, 2, warp_amount);
 	combine_heightmaps_f3(img, img3, img4, image_size);
 
 	write_heightmap_png("img4.png", img4, image_size);
@@ -556,7 +584,7 @@ int main(int argc, char *argv[])
 	img5 = allocate_heightmap(image_size);
 	g3 = allocate_grid(grid_size * 16);
 	setup_grid_points_from_heightmap(g3, image_size, img, 3);
-	pseudo_erosion(img5, g3, image_size);
+	pseudo_erosion(img5, ctx, g3, image_size, 3, warp_amount);
 	combine_heightmaps_f4(img, img3, img4, img5, image_size);
 
 	write_heightmap_png("img5.png", img5, image_size);

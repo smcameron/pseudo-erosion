@@ -58,8 +58,20 @@ r3=pseudo-erosion(128 points x 128 points, referencing map)
 map=map+sqrt(r1r2)r3/3
 ```
 </blockquote>
-So far, I have not been able to implement and get results like YankeeMinstrel
-gets though. I suspect it is due to clipping/overflow as the values are transformed
-into bytes in the image, then transformed back out, but there may be other
-problems as well that I'm not yet aware of.
+## Building & Usage
+
+```sh
+make
+./pseudo-erosion
+```
+
+### Options
+
+- `-s, --size <px>`: Output image width and height in pixels (default `1024`).
+- `-f, --featuresize <px>`: Base OpenSimplex noise feature size in pixels (default `256`).
+- `-g, --gridsize <n>`: Initial erosion grid dimension (default `8`, scaling to `4n` and `16n`).
+- `-S, --seed <n>`: Random seed (default `123456`).
+- `-w, --warp <amount>`: OpenSimplex domain-warp amplitude in grid-cell units (`0` disables warping; default `0.25`).
+- `-i, --input <file.png>`: Use an existing PNG heightmap as the base terrain instead of generating OpenSimplex noise.
+- `-o, --outputfile <file.png>`: Output PNG path (default `output.png`).
 
