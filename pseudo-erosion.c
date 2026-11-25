@@ -94,25 +94,92 @@ static inline struct grid_point *gridpoint(struct grid *grid, int x, int y)
 	return &grid->g[(grid->dim + 1) * y + x];
 }
 
-static uint32_t *allocate_image(int dim)
+static double *allocate_heightmap(int dim)
 {
-	unsigned char *image;
+	double *hm;
 
-	image = malloc(4 * dim * dim);
-	memset(image, 0, 4 * dim * dim);
-	return (uint32_t *) image;
+	hm = calloc((size_t) dim * (size_t) dim, sizeof(*hm));
+	if (!hm) {
+		fprintf(stderr, "pseudo-erosion: Out of memory allocating %dx%d heightmap\n", dim, dim);
+		exit(1);
+	}
+	return hm;
 }
 
-static inline uint32_t noise_to_color(double noise)
+static int write_heightmap_png(const char *filename, const double *hm, int dim)
 {
-	uint32_t rgb = (0x0ff << 24) | (0x010101 * (uint32_t) ((noise + 1) * 127.5));
-	return rgb;
+	size_t i, n = (size_t) dim * (size_t) dim;
+	double minv, maxv, range;
+	uint32_t *pixels;
+	int rc;
+
+	if (n == 0)
+		return -1;
+
+	minv = hm[0];
+	maxv = hm[0];
+	for (i = 1; i < n; i++) {
+		if (hm[i] < minv)
+			minv = hm[i];
+		if (hm[i] > maxv)
+			maxv = hm[i];
+	}
+	range = maxv - minv;
+
+	pixels = malloc(n * sizeof(*pixels));
+	if (!pixels) {
+		fprintf(stderr, "pseudo-erosion: Out of memory allocating PNG buffer\n");
+		exit(1);
+	}
+
+	for (i = 0; i < n; i++) {
+		double t = (range > 0.0) ? (hm[i] - minv) / range : 0.0;
+		uint32_t v;
+		if (t < 0.0)
+			t = 0.0;
+		else if (t > 1.0)
+			t = 1.0;
+		v = (uint32_t) (t * 255.0 + 0.5);
+		pixels[i] = (0xffu << 24) | (v * 0x010101u);
+	}
+
+	rc = png_utils_write_png_image(filename, (unsigned char *) pixels, dim, dim, 1, 0);
+	free(pixels);
+	return rc;
 }
 
-static inline double color_to_noise(uint32_t color)
+static double *read_heightmap_png(const char *filename, int *out_dim)
 {
-	int value = color & 0x0ff;
-	return ((double) value / 127.5) - 1.0;
+	int w = 0, h = 0, a = 0, dim, bpp, row_bytes, x, y;
+	char whynot[256];
+	unsigned char *raw;
+	double *hm;
+
+	raw = (unsigned char *) png_utils_read_png_image(filename, 0, 0, 0, &w, &h, &a, whynot, sizeof(whynot));
+	if (!raw) {
+		fprintf(stderr, "pseudo-erosion: Failed to read '%s': %s\n", filename, whynot);
+		exit(1);
+	}
+
+	dim = (w < h) ? w : h;
+	bpp = a ? 4 : 3;
+	row_bytes = w * bpp;
+	if (row_bytes & 0x03)
+		row_bytes += 4 - (row_bytes & 0x03);
+
+	hm = allocate_heightmap(dim);
+	for (y = 0; y < dim; y++) {
+		const unsigned char *row = raw + (size_t) y * (size_t) row_bytes;
+		for (x = 0; x < dim; x++) {
+			const unsigned char *p = row + (size_t) x * (size_t) bpp;
+			hm[(size_t) y * (size_t) dim + (size_t) x] =
+				((double) p[0] + (double) p[1] + (double) p[2]) / (3.0 * 255.0);
+		}
+	}
+
+	free(raw);
+	*out_dim = dim;
+	return hm;
 }
 
 /* Offsets for Moore neighborhood, including self */
@@ -166,11 +233,12 @@ static void setup_grid_points(struct osn_context *ctx, struct grid *grid, const 
 	}
 }
 
-static void setup_grid_points_from_image(struct osn_context *ctx, struct grid *grid,
-		const double dim, const double feature_size, uint32_t *image)
+static void setup_grid_points_from_heightmap(struct osn_context *ctx, struct grid *grid,
+		const double dim, const double feature_size, const double *hm)
 {
 	int i, x, y;
 	double xoffset, yoffset;
+	int max_idx = (int) dim * (int) dim - 1;
 
 	for (y = 0; y < grid->dim + 1; y++) {
 		for (x = 0; x < grid->dim + 1; x++) {
@@ -192,7 +260,7 @@ static void setup_grid_points_from_image(struct osn_context *ctx, struct grid *g
 			double lowest_value = 100000.0;
 			/* Find the lowest neighbor, lown (index into xo[], yo[]) */
 			for (i = 0; i < 9; i++) { /* Check Moore neighborhood */
-				int nx, ny;
+				int nx, ny, idx;
 				double value;
 				double px, py;
 				nx = x + xo[i];
@@ -201,7 +269,12 @@ static void setup_grid_points_from_image(struct osn_context *ctx, struct grid *g
 					continue;
 				px = gridpoint(grid, nx, ny)->x;
 				py = gridpoint(grid, nx, ny)->y;
-				value = color_to_noise(image[(int) (py * dim + px)]);
+				idx = (int) (py * dim + px);
+				if (idx < 0)
+					idx = 0;
+				else if (idx > max_idx)
+					idx = max_idx;
+				value = hm[idx];
 				if (value < lowest_value) {
 					lown = i;
 					lowest_value = value;
@@ -219,7 +292,7 @@ static inline double sqr(double x)
 	return x * x;
 }
 
-static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, struct grid *grid, int dim, float feature_size)
+static void pseudo_erosion(double *hm, struct osn_context *ctx, struct grid *grid, int dim, float feature_size)
 {
 	int i, x, y, gx, gy, cx, cy, ngx, ngy;
 	double f1, f2, x1, y1, x2, y2, px, py, h;
@@ -255,7 +328,7 @@ static void pseudo_erosion(uint32_t *image, struct osn_context *ctx, struct grid
 				if (h < minh)
 					minh = h;
 			}
-			image[y * dim + x] = noise_to_color(minh);
+			hm[y * dim + x] = minh;
 		}
 		printf(".");
 		fflush(stdout);
@@ -281,7 +354,7 @@ static void process_options(int argc, char *argv[])
 	int c;
 
 	while (1) {
-		int option_index;
+		int option_index = 0;
 		c = getopt_long(argc, argv, "f:g:i:o:s:S:", long_options, &option_index);
 		if (c == -1)
 			break;
@@ -315,87 +388,62 @@ static void process_options(int argc, char *argv[])
 	return;
 }
 
-/* Combine images a,b as a + 0.5*b */
-static void combine_images_f1(uint32_t *im1, uint32_t *im2, int imsize)
+/* Combine heightmaps a,b as 0.5*a + 0.25*b */
+static void combine_heightmaps_f1(double *hm1, const double *hm2, int imsize)
 {
 	int x, y;
 
 	for (y = 0; y < imsize; y++) {
 		for (x = 0; x < imsize; x++) {
-			double n1, n2;
-			uint32_t c1 = im1[y * imsize + x];
-			uint32_t c2 = im2[y * imsize + x];
-			n1 = color_to_noise(c1);
-			n2 = color_to_noise(c2);
-			n1 = 0.25 * n2 + 0.5 * n1;
-			im1[y * imsize + x] = noise_to_color(n1);
+			int idx = y * imsize + x;
+			hm1[idx] = 0.25 * hm2[idx] + 0.5 * hm1[idx];
 		}
 	}
 }
 
-/* Combine images a,b as a + sqr(b) */
-static void combine_images_f2(uint32_t *im1, uint32_t *im2, int imsize)
+/* Combine heightmaps a,b as a + sqr(b) */
+static void combine_heightmaps_f2(double *hm1, const double *hm2, int imsize)
 {
 	int x, y;
 
 	for (y = 0; y < imsize; y++) {
 		for (x = 0; x < imsize; x++) {
-			double n1, n2;
-			uint32_t c1 = im1[y * imsize + x];
-			uint32_t c2 = im2[y * imsize + x];
-			n1 = color_to_noise(c1);
-			n2 = color_to_noise(c2);
-			n1 = n2 * n2 + n1;
-			im1[y * imsize + x] = noise_to_color(n1);
+			int idx = y * imsize + x;
+			hm1[idx] = hm2[idx] * hm2[idx] + hm1[idx];
 		}
 	}
 }
 
-/* Combine images a,b,c as a + b * 0.5 * c */
-static void combine_images_f3(uint32_t *im1, uint32_t *im2, uint32_t *im3, int imsize)
+/* Combine heightmaps a,b,c as a + b * 0.5 * c */
+static void combine_heightmaps_f3(double *hm1, const double *hm2, const double *hm3, int imsize)
 {
 	int x, y;
 
 	for (y = 0; y < imsize; y++) {
 		for (x = 0; x < imsize; x++) {
-			double n1, n2, n3;
-			uint32_t c1 = im1[y * imsize + x];
-			uint32_t c2 = im2[y * imsize + x];
-			uint32_t c3 = im3[y * imsize + x];
-			n1 = color_to_noise(c1);
-			n2 = color_to_noise(c2);
-			n3 = color_to_noise(c3);
-			n1 = n1 + n2 * 0.5 * n3;
-			im1[y * imsize + x] = noise_to_color(n1);
+			int idx = y * imsize + x;
+			hm1[idx] = hm1[idx] + hm2[idx] * 0.5 * hm3[idx];
 		}
 	}
 }
 
-/* Combine images a,b,c,d as a + sqrt(b * c) * 0.3333 * d */
-static void combine_images_f4(uint32_t *im1, uint32_t *im2, uint32_t *im3, uint32_t *im4, int imsize)
+/* Combine heightmaps a,b,c,d as a + sqrt(b * c) * 0.3333 * d */
+static void combine_heightmaps_f4(double *hm1, const double *hm2, const double *hm3, const double *hm4, int imsize)
 {
 	int x, y;
 
 	for (y = 0; y < imsize; y++) {
 		for (x = 0; x < imsize; x++) {
-			double n1, n2, n3, n4;
-			uint32_t c1 = im1[y * imsize + x];
-			uint32_t c2 = im2[y * imsize + x];
-			uint32_t c3 = im3[y * imsize + x];
-			uint32_t c4 = im4[y * imsize + x];
-			n1 = color_to_noise(c1);
-			n2 = color_to_noise(c2);
-			n3 = color_to_noise(c3);
-			n4 = color_to_noise(c4);
-			n1 = n1 + sqrt(n2 * n3) * 0.3333 * n4;
-			im1[y * imsize + x] = noise_to_color(n1);
+			int idx = y * imsize + x;
+			double prod = hm2[idx] * hm3[idx];
+			hm1[idx] = hm1[idx] + sqrt(prod > 0.0 ? prod : 0.0) * 0.3333 * hm4[idx];
 		}
 	}
 }
 
 int main(int argc, char *argv[])
 {
-	unsigned char *img, *img2, *img3, *img4, *img5 = NULL;
+	double *img, *img2, *img3, *img4, *img5 = NULL;
 	struct osn_context *ctx;
 	struct grid *g, *g2, *g3, *g4, *g5;
 
@@ -407,63 +455,66 @@ int main(int argc, char *argv[])
 	g = allocate_grid(grid_size);
 	/* First iteration, or input image */
 	if (input_image) {
-		int w, h, a;
-		char whynot[100];
-		img = (unsigned char *) png_utils_read_png_image(input_image, 0, 0, 0, &w, &h, &a, whynot, 100);
-		if (w < h)
-			image_size = w;
-		else
-			image_size = h;
+		img = read_heightmap_png(input_image, &image_size);
 	} else {
-		img = (unsigned char *) allocate_image(image_size);
+		img = allocate_heightmap(image_size);
 		setup_grid_points(ctx, g, image_size, feature_size);
-		pseudo_erosion((uint32_t *) img, ctx, g, image_size, feature_size);
+		pseudo_erosion(img, ctx, g, image_size, feature_size);
 	}
 
-	png_utils_write_png_image("img-a.png", (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png("img-a.png", img, image_size);
 
 	/* 2nd iteration */
-	img2 = (unsigned char *) allocate_image(image_size);
+	img2 = allocate_heightmap(image_size);
 	g2 = allocate_grid(grid_size * 2);
 	setup_grid_points(ctx, g2, image_size, feature_size / 2);
-	pseudo_erosion((uint32_t *) img2, ctx, g2, image_size, feature_size / 2);
-	combine_images_f1((uint32_t *) img, (uint32_t *) img2, image_size);
+	pseudo_erosion(img2, ctx, g2, image_size, feature_size / 2);
+	combine_heightmaps_f1(img, img2, image_size);
 
-	png_utils_write_png_image("img2.png", (unsigned char *) img2, image_size, image_size, 1, 0);
-	png_utils_write_png_image("img-b.png", (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png("img2.png", img2, image_size);
+	write_heightmap_png("img-b.png", img, image_size);
 
 	/* 3rd iteration */
-	img3 = (unsigned char *) allocate_image(image_size);
+	img3 = allocate_heightmap(image_size);
 	g3 = allocate_grid(grid_size * 4);
-	setup_grid_points_from_image(ctx, g3, image_size, feature_size / 4, (uint32_t *) img);
-	pseudo_erosion((uint32_t *) img3, ctx, g3, image_size, feature_size / 4);
-	combine_images_f2((uint32_t *) img, (uint32_t *) img3, image_size);
+	setup_grid_points_from_heightmap(ctx, g3, image_size, feature_size / 4, img);
+	pseudo_erosion(img3, ctx, g3, image_size, feature_size / 4);
+	combine_heightmaps_f2(img, img3, image_size);
 
-	png_utils_write_png_image("img3.png", (unsigned char *) img3, image_size, image_size, 1, 0);
-	png_utils_write_png_image("img-c.png", (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png("img3.png", img3, image_size);
+	write_heightmap_png("img-c.png", img, image_size);
 
 	/* 4th iteration */
-	img4 = (unsigned char *) allocate_image(image_size);
+	img4 = allocate_heightmap(image_size);
 	g4 = allocate_grid(grid_size * 8);
-	setup_grid_points_from_image(ctx, g4, image_size, feature_size / 8, (uint32_t *) img);
-	pseudo_erosion((uint32_t *) img4, ctx, g4, image_size, feature_size / 8);
-	combine_images_f3((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, image_size);
+	setup_grid_points_from_heightmap(ctx, g4, image_size, feature_size / 8, img);
+	pseudo_erosion(img4, ctx, g4, image_size, feature_size / 8);
+	combine_heightmaps_f3(img, img3, img4, image_size);
 
-	png_utils_write_png_image("img4.png", (unsigned char *) img4, image_size, image_size, 1, 0);
-	png_utils_write_png_image("img-d.png", (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png("img4.png", img4, image_size);
+	write_heightmap_png("img-d.png", img, image_size);
 
 	/* 5th iteration */
-	img5 = (unsigned char *) allocate_image(image_size);
+	img5 = allocate_heightmap(image_size);
 	g5 = allocate_grid(grid_size * 16);
-	setup_grid_points_from_image(ctx, g5, image_size, feature_size / 16, (uint32_t *) img);
-	pseudo_erosion((uint32_t *) img5, ctx, g5, image_size, feature_size / 16);
-	combine_images_f4((uint32_t *) img, (uint32_t *) img3, (uint32_t *) img4, (uint32_t *) img5, image_size);
+	setup_grid_points_from_heightmap(ctx, g5, image_size, feature_size / 16, img);
+	pseudo_erosion(img5, ctx, g5, image_size, feature_size / 16);
+	combine_heightmaps_f4(img, img3, img4, img5, image_size);
 
-	png_utils_write_png_image("img5.png", (unsigned char *) img5, image_size, image_size, 1, 0);
-	png_utils_write_png_image("img-e.png", (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png("img5.png", img5, image_size);
+	write_heightmap_png("img-e.png", img, image_size);
 
-	png_utils_write_png_image(output_file, (unsigned char *) img, image_size, image_size, 1, 0);
+	write_heightmap_png(output_file, img, image_size);
 	open_simplex_noise_free(ctx);
 	free_grid(g);
+	free_grid(g2);
+	free_grid(g3);
+	free_grid(g4);
+	free_grid(g5);
+	free(img);
+	free(img2);
+	free(img3);
+	free(img4);
+	free(img5);
 	return 0;
 }
